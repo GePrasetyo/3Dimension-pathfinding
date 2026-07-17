@@ -1,0 +1,27 @@
+{
+  "name": "com.majingari.pathfinding3d",
+  "displayName": "Majinfwork 3D Pathfinding",
+  "version": "1.0.0",
+  "description": "Grid-based 3D A* navigation for flying agents. Weighted A* with island reachability pre-checks, dynamic obstacle support, exact line-of-sight path pruning, pure-pursuit path following and predictive local avoidance.",
+  "unity": "6000.0",
+  "documentationUrl": "https://github.com/GePrasetyo/3Dimension-pathfinding/wiki",
+  "changelogUrl": "https://github.com/GePrasetyo/3Dimension-pathfinding/",
+  "licensesUrl": "https://github.com/GePrasetyo/3Dimension-pathfinding/blob/main/LICENSE",
+  "dependencies": {
+    "com.unity.addressables": "2.2.2",
+    "com.cysharp.unitask": "2.5.0"
+  },
+  "keywords": [
+    "pathfinding",
+    "astar",
+    "3d",
+    "navigation",
+    "flying",
+    "avoidance"
+  ],
+  "author": {
+    "name": "Dhimas Prasetyo",
+    "email": "dhimasgppantoja@gmail.com",
+    "url": "https://github.com/GePrasetyo/3Dimension-pathfinding/"
+  }
+}
