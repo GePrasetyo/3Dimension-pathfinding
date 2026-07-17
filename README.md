@@ -24,14 +24,6 @@
 - **Tiny baked data** - one bit per cell (a 100k-cell grid is ~13 KB), validated on load
 - **Frame-friendly** - searches and background work are time-sliced, never stall a frame
 
-## 📦 Installation
-
-1. Install **UniTask** first (not on the Unity registry):
-   - Git URL: `https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask`
-2. Add this package (Addressables resolves automatically):
-   - Git URL: `https://github.com/GePrasetyo/3Dimension-pathfinding.git`
-   - or Package Manager → *Add package from disk...*
-
 ## 🚀 Getting Started
 
 ### 1. Create an agent type
