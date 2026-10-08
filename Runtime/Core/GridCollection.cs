@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 namespace Majinfwork.Pathfinding {
-    public class GridCollection {
+    public class GridCollection : System.IDisposable {
         // The 26 surrounding cells with their step cost relative to pointDistance (1, sqrt2, sqrt3).
         // Neighbours are implicit from coordinates: on a uniform grid they are fully
         // derivable, so nothing is stored per cell.
@@ -99,13 +99,26 @@ namespace Majinfwork.Pathfinding {
             this.centerVisual = centerPoint;
         }
 
+        private GridSearchData searchData;
+
+        /// <summary>Native data searches run on (created on first search; released by <see cref="Dispose"/>).</summary>
+        internal GridSearchData SearchData => searchData ??= new GridSearchData(this);
+
+        /// <summary>Releases the native search data (the grid stays usable: it is rebuilt on the next search).</summary>
+        public void Dispose() {
+            searchData?.Dispose();
+            searchData = null;
+        }
+
         public void InitializeGrid(GridNode[][][] grids) {
             this.grids = grids;
+            searchData?.Invalidate();
             invalidGridCollection = grids == null;
             invalidGridObstacles = invalidGridCollection;
         }
 
         public void InitializeComplete() {
+            searchData?.Invalidate();
             invalidGridCollection = false;
             invalidGridObstacles = false;
         }

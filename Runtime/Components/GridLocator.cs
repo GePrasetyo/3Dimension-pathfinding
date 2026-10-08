@@ -53,6 +53,8 @@ namespace Majinfwork.Pathfinding {
             }
 
             gridCollections.Remove(gridCollection);
+            // Its native search data goes with it.
+            gridCollection.Dispose();
         }
 
         public static bool IsPathValid(PathAgentType agent, Vector3 point) {

@@ -53,6 +53,7 @@ namespace Majinfwork.Pathfinding.Tests {
 
         [TearDown]
         public void TearDown() {
+            collection.Dispose();
             Object.DestroyImmediate(agentObject);
             Object.DestroyImmediate(agentType);
         }
