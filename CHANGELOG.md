@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1]
+
+### Fixed
+- `PathFollower` flew back to a corner it had cut: it only moved on to the next segment once it projected past the end of the current one, so a body beside its start cell (a short first leg, then a turn) lost progress and turned round. It now moves on when the next segment is nearer, and its progress along the path never goes back.
+
 ## [1.0.0]
 
 ### Added

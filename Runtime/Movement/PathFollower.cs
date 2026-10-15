@@ -32,6 +32,9 @@ namespace Majinfwork.Pathfinding {
         private Vector3 velocity;
         private Vector3 avoidanceVelocity;
         private int segmentIndex;
+        // How far along the path (m) the body has come. It never goes back: a body that cut a corner, or was pushed
+        // off the path, steers on from where it got to instead of back to the corner.
+        private float progress;
         private float accelerationMultiplier = 1f;
         private bool initialized;
 
@@ -69,6 +72,7 @@ namespace Majinfwork.Pathfinding {
             }
 
             segmentIndex = 0;
+            progress = 0f;
             // velocity is deliberately kept: continuity across repaths is the point
         }
 
@@ -76,6 +80,7 @@ namespace Majinfwork.Pathfinding {
             pathPoints.Clear();
             cumulativeLengths.Clear();
             segmentIndex = 0;
+            progress = 0f;
             velocity = Vector3.zero;
             avoidanceVelocity = Vector3.zero;
             speed = 0f;
@@ -144,6 +149,7 @@ namespace Majinfwork.Pathfinding {
 
             Vector3 position = bodyTransform.position;
             AdvanceSegment(position);
+            progress = Mathf.Max(progress, TraveledDistance(position));
 
             float remaining = RemainingDistance(position);
             if(remaining <= arrivalTolerance) {
@@ -152,7 +158,7 @@ namespace Majinfwork.Pathfinding {
             }
 
             float effectiveAcceleration = acceleration * accelerationMultiplier;
-            Vector3 carrot = PointAlongPath(TraveledDistance(position) + lookaheadDistance);
+            Vector3 carrot = PointAlongPath(progress + lookaheadDistance);
 
             // Braking-limited target speed: v = sqrt(2 * a * d) reaches zero exactly at the end.
             float targetSpeed = Mathf.Min(maxSpeed * speedFactor, Mathf.Sqrt(2f * effectiveAcceleration * remaining));
@@ -169,10 +175,22 @@ namespace Majinfwork.Pathfinding {
             }
         }
 
+        /// <summary>
+        /// Moves on to the next segment once the body is past the end of this one, or nearer the next one: a body that
+        /// cuts a corner never reaches the end of the segment before it.
+        /// </summary>
         private void AdvanceSegment(Vector3 position) {
-            while(segmentIndex < pathPoints.Count - 2 && ProjectOnSegment(position, segmentIndex) >= 1f) {
+            while(segmentIndex < pathPoints.Count - 2 &&
+                (ProjectOnSegment(position, segmentIndex) >= 1f ||
+                 SqrDistanceToSegment(position, segmentIndex + 1) <= SqrDistanceToSegment(position, segmentIndex))) {
                 segmentIndex++;
             }
+        }
+
+        private float SqrDistanceToSegment(Vector3 position, int index) {
+            Vector3 a = pathPoints[index];
+            Vector3 closest = a + (pathPoints[index + 1] - a) * Mathf.Clamp01(ProjectOnSegment(position, index));
+            return (position - closest).sqrMagnitude;
         }
 
         private float ProjectOnSegment(Vector3 position, int index) {
@@ -199,7 +217,7 @@ namespace Majinfwork.Pathfinding {
                 return Vector3.Distance(position, pathPoints[pathPoints.Count - 1]);
             }
 
-            return cumulativeLengths[cumulativeLengths.Count - 1] - TraveledDistance(position);
+            return cumulativeLengths[cumulativeLengths.Count - 1] - progress;
         }
 
         private Vector3 PointAlongPath(float distance) {

@@ -85,6 +85,53 @@ namespace Majinfwork.Pathfinding.Tests {
             Assert.AreEqual(before, body.transform.position);
         }
 
+        [Test]
+        public void CuttingAShortFirstCornerNeverFliesBack() {
+            // An agent beside its start cell: a short first leg, then a turn the follower cuts.
+            follower.maxSpeed = 4f;
+            follower.acceleration = 12f;
+            follower.lookaheadDistance = 0.3f;
+            body.transform.position = new Vector3(0.35f, 0f, 0.42f);
+            List<Vector3> path = new List<Vector3> {
+                new Vector3(0.3f, 0f, 0.6f), new Vector3(0.6f, 0f, 0.6f), new Vector3(0.6f, 0f, 0.3f), new Vector3(0.6f, 0f, -0.3f),
+                new Vector3(0.6f, 0f, -0.6f), new Vector3(-0.3f, 0f, -0.6f), new Vector3(-0.35f, 0f, -0.42f)
+            };
+            List<Vector3> line = new List<Vector3> { body.transform.position };
+            line.AddRange(path);
+            follower.InputPathToMove(path);
+
+            float furthest = 0f;
+            bool arrived = false;
+            for(int i = 0; i < 2000 && !arrived; i++) {
+                follower.Move(dt, out Vector3? direction);
+                float along = ArcLengthOfClosestPoint(line, body.transform.position);
+                Assert.Greater(along, furthest - 0.1f, $"flew back along the path at step {i}: {along:F2} m after reaching {furthest:F2} m");
+                furthest = Mathf.Max(furthest, along);
+                arrived = !direction.HasValue;
+            }
+
+            Assert.IsTrue(arrived);
+            Assert.Less((body.transform.position - path[path.Count - 1]).magnitude, 0.1f);
+        }
+
+        private static float ArcLengthOfClosestPoint(List<Vector3> line, Vector3 position) {
+            float best = float.MaxValue, bestAlong = 0f, start = 0f;
+            for(int i = 0; i < line.Count - 1; i++) {
+                Vector3 a = line[i], ab = line[i + 1] - a;
+                float length = ab.magnitude;
+                float t = length > 0f ? Mathf.Clamp01(Vector3.Dot(position - a, ab) / (length * length)) : 0f;
+                float distance = (a + ab * t - position).sqrMagnitude;
+                if(distance < best) {
+                    best = distance;
+                    bestAlong = start + t * length;
+                }
+
+                start += length;
+            }
+
+            return bestAlong;
+        }
+
         private bool Simulate(int maxSteps, Vector3 target, out float maxVelocityStep, out float maxSpeedSeen) {
             Vector3 previousVelocity = Vector3.zero;
             maxVelocityStep = 0f;
