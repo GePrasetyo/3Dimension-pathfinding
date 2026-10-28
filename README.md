@@ -3,7 +3,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Unity-6.0%2B-black?style=flat-square&logo=unity" alt="Unity 6.0+"/>
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License"/>
-  <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=flat-square" alt="Version"/>
 </p>
 
 <p align="center">
