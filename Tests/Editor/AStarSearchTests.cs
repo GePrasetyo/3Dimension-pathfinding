@@ -23,7 +23,7 @@ namespace Majinfwork.Pathfinding.Tests {
 
         [SetUp]
         public void SetUp() {
-            agentType = ScriptableObject.CreateInstance<PathAgentType>();
+            agentType = new PathAgentType(0);
             collection = new GridCollection(size, size, size, pd, Vector3.zero, agentType, 0);
 
             grids = new GridNode[size][][];
@@ -55,7 +55,6 @@ namespace Majinfwork.Pathfinding.Tests {
         public void TearDown() {
             collection.Dispose();
             Object.DestroyImmediate(agentObject);
-            Object.DestroyImmediate(agentType);
         }
 
         [Test]

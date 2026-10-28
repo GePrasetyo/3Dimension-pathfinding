@@ -26,13 +26,13 @@
 
 ## 🚀 Getting Started
 
-### 1. Create an agent type
+### 1. Name your agent types
 
-`Assets > Create > Majinfwork > Pathfinding > Agent Type` - one asset per kind of flying agent (e.g. `AT_Drone`).
+`Project Settings > Pathfinding Agent Types` - one entry per kind of flying agent (e.g. `Drone`). Like layers, a type is just a byte; the names are editor-only.
 
 ### 2. Set up the grid volume
 
-Add a **GridVolume** to your level: assign the agent type, grid size, cell size and the layer mask of static geometry. Press **Bake grid data** in the inspector.
+Add a **GridVolume** to your level: pick the agent type, grid size, cell size and the layer mask of static geometry. Press **Bake grid data** in the inspector.
 
 ### 3. Initialize on level load
 

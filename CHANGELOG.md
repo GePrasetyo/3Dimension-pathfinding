@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.0]
+
+### Changed
+- `PathAgentType` is a byte, named like a layer in `Project Settings > Pathfinding Agent Types` (editor-only), instead of a ScriptableObject. An identity asset referenced from both the player build and Addressables was loaded twice, and agents never found their grid. Re-pick the type on every `GridVolume` and agent field.
+
 ## [1.1.1]
 
 ### Fixed

@@ -23,7 +23,7 @@ namespace Majinfwork.Pathfinding {
         }
 
         public static GridCollection GetActive(PathAgentType type) {
-            if(type != null && activeGridByType.TryGetValue(type, out GridCollection grid)) {
+            if(activeGridByType.TryGetValue(type, out GridCollection grid)) {
                 return grid;
             }
 
