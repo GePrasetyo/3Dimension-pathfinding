@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.0]
+
+### Changed
+- Island maps fill in a Burst job (`IslandFillJob`) instead of a time-sliced flood fill on the main thread. The dynamic refill that follows obstacle changes runs on a worker thread from its own copy of the blocking, and swaps in when done; queries keep the last complete map meanwhile. Before, it took up to 10 ms of every frame until done and allocated a new map each time (a 300k-cell grid dropped 2-3 frames on Quest 3 per refill). The maps are native and reused, released by `GridCollection.Dispose`.
+- `ComputeIslands` and `ComputeDynamicIslands` complete before they return.
+
 ## [2.0.0]
 
 ### Changed

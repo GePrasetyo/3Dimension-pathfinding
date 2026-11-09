@@ -1,4 +1,3 @@
-using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -71,9 +70,10 @@ namespace Majinfwork.Pathfinding {
         }
 
         /// <summary>
-        /// Coalesced dynamic island refresh: at most one time-sliced flood fill in
-        /// flight per collection, started at most once per cooldown, and only when
-        /// the current map is stale. Many obstacle changes collapse into one refill.
+        /// Coalesced dynamic island refresh: at most one flood fill in flight per
+        /// collection, a Burst job on a worker thread, started at most once per cooldown
+        /// and only when the current map is stale. Many obstacle changes collapse into
+        /// one refill; queries read the last complete map until it is done.
         /// </summary>
         public static void TickIslandMaintenance() {
             for(int i = 0; i < activeGrid.Count; i++) {
@@ -83,16 +83,7 @@ namespace Majinfwork.Pathfinding {
                     continue;
                 }
 
-                if(grid.dynamicIslandFillRunning || grid.HasFreshDynamicIslands()) {
-                    continue;
-                }
-
-                if(Time.time < grid.nextDynamicIslandTime) {
-                    continue;
-                }
-
-                grid.nextDynamicIslandTime = Time.time + dynamicIslandCooldown;
-                grid.ComputeDynamicIslands().Forget();
+                grid.Islands.Tick(Time.time, dynamicIslandCooldown);
             }
         }
     }

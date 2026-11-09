@@ -51,17 +51,6 @@ namespace Majinfwork.Pathfinding {
 
         internal GridNode[][][] grids;
 
-        // Island id per cell (flattened), computed from static blocking only. 0 = blocked/unassigned.
-        internal int[] islandIds;
-
-        // Islands computed from combined blocking (static + dynamic obstacles), refreshed
-        // by GridLocator.TickIslandMaintenance. Only trusted while the version stamp
-        // matches GridLocator.obstacleVersion; stale maps fall back to islandIds.
-        internal int[] dynamicIslandIds;
-        internal int dynamicIslandVersion = -1;
-        internal bool dynamicIslandFillRunning;
-        internal float nextDynamicIslandTime;
-
         internal Vector3 startPoint;
         internal int gridWidth = 0;
         internal int gridHeight = 0;
@@ -100,14 +89,26 @@ namespace Majinfwork.Pathfinding {
         }
 
         private GridSearchData searchData;
+        private GridIslands islands;
 
         /// <summary>Native data searches run on (created on first search; released by <see cref="Dispose"/>).</summary>
         internal GridSearchData SearchData => searchData ??= new GridSearchData(this);
 
-        /// <summary>Releases the native search data (the grid stays usable: it is rebuilt on the next search).</summary>
+        /// <summary>
+        /// The island maps: static (baked blocking only) and dynamic (obstacles too, refreshed in the background by
+        /// GridLocator.TickIslandMaintenance and trusted only while fresh). Released by <see cref="Dispose"/>.
+        /// </summary>
+        internal GridIslands Islands => islands ??= new GridIslands(this);
+
+        /// <summary>
+        /// Releases the native search data and island maps (the grid stays usable: search data is rebuilt on the next
+        /// search, the island maps by the next <see cref="GridExtension.ComputeIslands"/>).
+        /// </summary>
         public void Dispose() {
             searchData?.Dispose();
             searchData = null;
+            islands?.Dispose();
+            islands = null;
         }
 
         public void InitializeGrid(GridNode[][][] grids) {
@@ -132,9 +133,7 @@ namespace Majinfwork.Pathfinding {
         }
 
         public bool HasFreshDynamicIslands() {
-            return dynamicIslandIds != null &&
-                dynamicIslandIds.Length == gridWidth * gridHeight * gridLength &&
-                dynamicIslandVersion == GridLocator.obstacleVersion;
+            return islands != null && islands.HasFreshDynamic;
         }
 
         /// <summary>
@@ -144,14 +143,14 @@ namespace Majinfwork.Pathfinding {
         /// </summary>
         public bool AreConnected(GridNode a, GridNode b) {
             if(HasFreshDynamicIslands()) {
-                return dynamicIslandIds[FlattenIndex(a.coords)] == dynamicIslandIds[FlattenIndex(b.coords)];
+                return islands.DynamicIsland(FlattenIndex(a.coords)) == islands.DynamicIsland(FlattenIndex(b.coords));
             }
 
-            if(islandIds == null) {
+            if(islands == null || !islands.HasStatic) {
                 return true;
             }
 
-            return islandIds[FlattenIndex(a.coords)] == islandIds[FlattenIndex(b.coords)];
+            return islands.StaticIsland(FlattenIndex(a.coords)) == islands.StaticIsland(FlattenIndex(b.coords));
         }
 
         private static readonly Queue<Vector3Int> probeFrontier = new Queue<Vector3Int>();

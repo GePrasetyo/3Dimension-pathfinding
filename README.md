@@ -21,7 +21,7 @@
 - **Smooth movement** - `PathFollower` steers a persistent velocity under an acceleration limit; repaths never snap direction
 - **Local avoidance** - predictive agent-vs-agent dodging built into the follower
 - **Tiny baked data** - one bit per cell (a 100k-cell grid is ~13 KB), validated on load
-- **Frame-friendly** - searches and background work are time-sliced, never stall a frame
+- **Frame-friendly** - searches and island refills run as Burst jobs on worker threads; obstacle changes never stall a frame
 
 ## 🚀 Getting Started
 

@@ -1,5 +1,4 @@
 using Cysharp.Threading.Tasks;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Majinfwork.Pathfinding {
@@ -106,109 +105,33 @@ namespace Majinfwork.Pathfinding {
         /// path requests fail in O(1) instead of exhausting the whole grid.
         /// Uses static blocking only, which keeps the fallback check conservative
         /// (never rejects a reachable goal). Also invalidates the dynamic island map,
-        /// since it was built on top of the previous static data.
+        /// since it was built on top of the previous static data. The fill is a Burst
+        /// job, complete when this returns.
         /// </summary>
-        public static async UniTask ComputeIslands(this GridCollection data) {
-            int[] map = await ComputeIslandMap(data, includeDynamic: false);
-            if(map == null) {
-                return;
+        public static UniTask ComputeIslands(this GridCollection data) {
+            if(data.grids == null) {
+                return UniTask.CompletedTask;
             }
 
-            data.islandIds = map;
-            data.dynamicIslandIds = null;
+            data.Islands.ComputeStatic();
 
             // Static data changed: invalidate any dynamic fill that started before this
             // point, or it would complete stamped as fresh over mixed old/new data.
             GridLocator.BumpObstacleVersion();
+            return UniTask.CompletedTask;
         }
 
         /// <summary>
-        /// Combined static+dynamic island map, stamped with the obstacle version it was
-        /// computed against. Launched by GridLocator.TickIslandMaintenance; if obstacles
-        /// change mid-fill the stamp is already outdated and queries keep ignoring the
-        /// map until the next refill.
+        /// Combined static+dynamic island map, filled now and stamped with the current
+        /// obstacle version. GridLocator.TickIslandMaintenance keeps it fresh in the
+        /// background on its own; call this only when a fresh map is needed at once.
         /// </summary>
-        public static async UniTask ComputeDynamicIslands(this GridCollection data) {
-            data.dynamicIslandFillRunning = true;
-            try {
-                int version = GridLocator.obstacleVersion;
-                int[] map = await ComputeIslandMap(data, includeDynamic: true);
-                if(map == null) {
-                    return;
-                }
-
-                data.dynamicIslandIds = map;
-                data.dynamicIslandVersion = version;
-            }
-            finally {
-                data.dynamicIslandFillRunning = false;
-            }
-        }
-
-        private static async UniTask<int[]> ComputeIslandMap(GridCollection data, bool includeDynamic) {
-            if(data.grids == null) {
-                return null;
+        public static UniTask ComputeDynamicIslands(this GridCollection data) {
+            if(data.grids != null) {
+                data.Islands.ComputeDynamic();
             }
 
-            // Built locally and swapped in at the end: the fill spans multiple frames and
-            // searches running meanwhile must keep reading the previous complete map.
-            int totalSize = data.gridWidth * data.gridHeight * data.gridLength;
-            int[] islandIds = new int[totalSize];
-
-            Queue<Vector3Int> frontier = new Queue<Vector3Int>();
-            int islandCount = 0;
-            int cellsProcessed = 0;
-            float taskTime = Time.realtimeSinceStartup;
-
-            for(int x = 0; x < data.gridWidth; x++) {
-                for(int y = 0; y < data.gridHeight; y++) {
-                    for(int z = 0; z < data.gridLength; z++) {
-                        Vector3Int seed = new Vector3Int(x, y, z);
-                        if(IsBlocked(data.grids[x][y][z], includeDynamic) || islandIds[data.FlattenIndex(seed)] != 0) {
-                            continue;
-                        }
-
-                        islandCount++;
-                        islandIds[data.FlattenIndex(seed)] = islandCount;
-                        frontier.Enqueue(seed);
-
-                        while(frontier.Count > 0) {
-                            Vector3Int current = frontier.Dequeue();
-
-                            for(int i = 0; i < GridCollection.neighbourOffsets.Length; i++) {
-                                Vector3Int next = current + GridCollection.neighbourOffsets[i];
-
-                                if(next.x < 0 || next.x >= data.gridWidth ||
-                                    next.y < 0 || next.y >= data.gridHeight ||
-                                    next.z < 0 || next.z >= data.gridLength) {
-                                    continue;
-                                }
-
-                                int nextIndex = data.FlattenIndex(next);
-                                if(islandIds[nextIndex] != 0 || IsBlocked(data.grids[next.x][next.y][next.z], includeDynamic)) {
-                                    continue;
-                                }
-
-                                islandIds[nextIndex] = islandCount;
-                                frontier.Enqueue(next);
-                            }
-
-                            cellsProcessed++;
-                            if(cellsProcessed > 512 && Time.realtimeSinceStartup - taskTime > maxFrameTime) {
-                                await UniTask.NextFrame();
-                                taskTime = Time.realtimeSinceStartup;
-                                cellsProcessed = 0;
-                            }
-                        }
-                    }
-                }
-            }
-
-            return islandIds;
-
-            static bool IsBlocked(GridNode grid, bool includeDynamic) {
-                return includeDynamic ? grid.invalid : grid.staticInvalid;
-            }
+            return UniTask.CompletedTask;
         }
     }
 }
