@@ -37,6 +37,29 @@ namespace Majinfwork.Pathfinding.Tests {
         }
 
         [Test]
+        public void PlanarSteerWalksTheBodyItDoesNotMoveToTheEnd() {
+            // A walker: its feet are 0.4 m under the path, which climbs a 0.5 m step halfway.
+            follower.InputPathToMove(new List<Vector3> { new Vector3(2, 0.4f, 0), new Vector3(3, 0.9f, 0), new Vector3(6, 0.9f, 0) });
+            Vector3 feet = Vector3.zero;
+            bool arrived = false;
+            for(int i = 0; i < 2000; i++) {
+                Vector3 bodyBefore = body.transform.position;
+                if(!follower.Steer(feet, dt, true, out Vector3 velocity)) {
+                    arrived = true;
+                    break;
+                }
+
+                Assert.AreEqual(0f, velocity.y, "a walker steers level");
+                Assert.AreEqual(bodyBefore, body.transform.position, "Steer never moves the body");
+                feet += velocity * dt;
+                feet.y = feet.x < 3f ? 0f : 0.5f; // the host keeps the feet on the floor
+            }
+
+            Assert.IsTrue(arrived, "a walker whose feet are under the path still arrives");
+            Assert.Less(Mathf.Abs(feet.x - 6f) + Mathf.Abs(feet.z), 0.1f, "arrived in plan");
+        }
+
+        [Test]
         public void VelocityChangeIsAccelerationLimitedEveryFrame() {
             follower.InputPathToMove(new List<Vector3> { new Vector3(4, 0, 0), new Vector3(4, 0, 4) });
 

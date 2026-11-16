@@ -131,13 +131,18 @@ namespace Majinfwork.Pathfinding {
         }
 
         private JobHandle Schedule(NativeArray<int> into) {
+            float cellSize = collection.pointDistance;
+            WalkSettings walk = collection.Walk;
             return new IslandFillJob {
                 blocked = mask,
                 islands = into,
                 queue = queue,
                 width = collection.gridWidth,
                 height = collection.gridHeight,
-                length = collection.gridLength
+                length = collection.gridLength,
+                walking = collection.Movement == PathMovement.Walk,
+                clearance = walk.ClearanceCells(cellSize),
+                reachCells = UnityEngine.Mathf.Max(walk.StepCells(cellSize), walk.DropCells(cellSize))
             }.Schedule();
         }
 

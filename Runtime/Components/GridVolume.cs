@@ -4,7 +4,7 @@ using UnityEngine.AddressableAssets;
 
 namespace Majinfwork.Pathfinding {
     /// <summary>
-    /// Defines one navigable grid volume for an agent type. At runtime the host calls
+    /// Defines one navigable grid volume for an agent type, flown or walked. At runtime the host calls
     /// InitializeGrid() during level load (baked data or runtime generation) and
     /// Activate() to make this the live grid for its agent type. Baking happens
     /// through the inspector button provided by the editor assembly.
@@ -16,6 +16,10 @@ namespace Majinfwork.Pathfinding {
         [SerializeField] private int gridLength = 0;
         [SerializeField] private float pointDistance = 0.5f;
         [SerializeField] private LayerMask layermask;
+        [Tooltip("How this grid's agents move: flying through free space, or walking on its floors.")]
+        [SerializeField] private PathMovement movement = PathMovement.Fly;
+        [Tooltip("Walking: what the walkers' bodies allow. Cells are whole, so pick a cell size that resolves the step height.")]
+        [SerializeField] private WalkSettings walking = WalkSettings.Default;
         [SerializeField] private AssetReference gridData;
 
         [Header("Do not enable this unless it's a testing/sandbox level!")]
@@ -46,7 +50,9 @@ namespace Majinfwork.Pathfinding {
                 pointDistance,
                 transform.position,
                 agentType,
-                layermask);
+                layermask,
+                movement,
+                walking);
         }
 
         private void Awake() {
@@ -116,7 +122,7 @@ namespace Majinfwork.Pathfinding {
                             continue;
                         }
 
-                        if(debugWalkable) {
+                        if(debugWalkable && (!gridCollection.IsWalking || gridCollection.IsStandable(g, c, b))) {
                             Gizmos.color = Color.white;
                             Gizmos.DrawWireCube(gridCollection.grids[g][c][b].worldPosition, Vector3.one * pointDistance);
                         }

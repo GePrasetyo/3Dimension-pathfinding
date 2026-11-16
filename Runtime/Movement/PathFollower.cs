@@ -142,19 +142,46 @@ namespace Majinfwork.Pathfinding {
 
         public void Move(float deltaTime, out Vector3? direction) {
             direction = null;
-
-            if(initialized == false || pathPoints.Count < 2) {
+            Vector3 position = bodyTransform != null ? bodyTransform.position : Vector3.zero;
+            if(!Advance(position, deltaTime, false)) {
                 return;
             }
 
-            Vector3 position = bodyTransform.position;
+            bodyTransform.position = position + velocity * deltaTime;
+            if(speed > 0.001f) {
+                direction = velocity;
+            }
+        }
+
+        /// <summary>
+        /// Steers without moving the body: the velocity to move at from <paramref name="position"/> this frame, for a host
+        /// that moves the body itself (a character controller, physics). <paramref name="planar"/> follows the path in
+        /// plan, for walkers: heights are ignored, the velocity is level and arrival is measured on the ground, so a walker
+        /// whose feet sit below the path's points still arrives. False when there is no path or it has arrived.
+        /// </summary>
+        public bool Steer(Vector3 position, float deltaTime, bool planar, out Vector3 steeredVelocity) {
+            bool moving = Advance(position, deltaTime, planar);
+            steeredVelocity = velocity;
+            return moving;
+        }
+
+        private bool Advance(Vector3 position, float deltaTime, bool planar) {
+            if(initialized == false || pathPoints.Count < 2) {
+                return false;
+            }
+
+            if(planar) {
+                // Stand the body on the path: its height is the path's where it is.
+                position.y = PointAlongPath(Mathf.Max(progress, TraveledDistance(position))).y;
+            }
+
             AdvanceSegment(position);
             progress = Mathf.Max(progress, TraveledDistance(position));
 
             float remaining = RemainingDistance(position);
             if(remaining <= arrivalTolerance) {
                 CancelMove();
-                return;
+                return false;
             }
 
             float effectiveAcceleration = acceleration * accelerationMultiplier;
@@ -163,16 +190,19 @@ namespace Majinfwork.Pathfinding {
             // Braking-limited target speed: v = sqrt(2 * a * d) reaches zero exactly at the end.
             float targetSpeed = Mathf.Min(maxSpeed * speedFactor, Mathf.Sqrt(2f * effectiveAcceleration * remaining));
             Vector3 toCarrot = carrot - position;
+            if(planar) {
+                toCarrot.y = 0f;
+            }
+
             Vector3 desiredVelocity = toCarrot.sqrMagnitude > 0.0001f ? toCarrot.normalized * targetSpeed : Vector3.zero;
             desiredVelocity = Vector3.ClampMagnitude(desiredVelocity + avoidanceVelocity, maxSpeed * speedFactor);
+            if(planar) {
+                desiredVelocity.y = 0f;
+            }
 
             velocity = Vector3.MoveTowards(velocity, desiredVelocity, effectiveAcceleration * deltaTime);
-            bodyTransform.position = position + velocity * deltaTime;
             speed = velocity.magnitude;
-
-            if(speed > 0.001f) {
-                direction = velocity;
-            }
+            return true;
         }
 
         /// <summary>

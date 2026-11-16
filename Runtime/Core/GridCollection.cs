@@ -60,6 +60,8 @@ namespace Majinfwork.Pathfinding {
 
         internal LayerMask layerMask;
         internal PathAgentType agentType;
+        internal PathMovement movement;
+        internal WalkSettings walk;
         internal bool invalidGridCollection { get; private set; }
         internal bool invalidGridObstacles { get; private set; }
 
@@ -71,8 +73,20 @@ namespace Majinfwork.Pathfinding {
         public float PointDistance => pointDistance;
         public Vector3 Origin => startPoint;
         public PathAgentType AgentType => agentType;
+        /// <summary>How this grid's agents move through it.</summary>
+        public PathMovement Movement => movement;
+        /// <summary>What this grid's walkers' bodies allow (used when <see cref="Movement"/> is <see cref="PathMovement.Walk"/>).</summary>
+        public WalkSettings Walk => walk;
+        public bool IsWalking => movement == PathMovement.Walk;
 
-        public GridCollection(int width, int height, int Length, float pointDistance, Vector3 centerPoint, PathAgentType agentType, LayerMask layermask) {
+        /// <summary>A flying grid.</summary>
+        public GridCollection(int width, int height, int Length, float pointDistance, Vector3 centerPoint, PathAgentType agentType, LayerMask layermask)
+            : this(width, height, Length, pointDistance, centerPoint, agentType, layermask, PathMovement.Fly, WalkSettings.Default) {
+        }
+
+        public GridCollection(int width, int height, int Length, float pointDistance, Vector3 centerPoint, PathAgentType agentType, LayerMask layermask, PathMovement movement, WalkSettings walk) {
+            this.movement = movement;
+            this.walk = walk;
             this.gridWidth = width;
             this.gridHeight = height;
             this.gridLength = Length;
@@ -164,7 +178,8 @@ namespace Majinfwork.Pathfinding {
         /// goal - it only fast-fails provably sealed ones while the island map is stale.
         /// </summary>
         public bool GoalPocketSealed(GridNode goal, GridNode start, int budget = 256) {
-            if(invalidGridCollection) {
+            // The probe floods flying moves; on a walking grid it proves nothing, so the search decides.
+            if(invalidGridCollection || IsWalking) {
                 return false;
             }
 
@@ -279,9 +294,167 @@ namespace Majinfwork.Pathfinding {
             return false;
         }
 
+        /// <summary>
+        /// Walking: a walker could stand along a straight line between two cells it stands in. Every column the line
+        /// crosses (in plan) has a cell to stand in within a step of the last one, its body fits through each move, and
+        /// the line ends at the height of <paramref name="to"/>. No drops: a ledge breaks the line.
+        /// </summary>
+        public bool HasWalkableLineOfSight(Vector3 from, Vector3 to) {
+            if(invalidGridCollection || !IsWalking) {
+                return false;
+            }
+
+            Vector3 start = (from - startPoint) / pointDistance;
+            Vector3 end = (to - startPoint) / pointDistance;
+            int x = Mathf.RoundToInt(start.x);
+            int y = Mathf.RoundToInt(start.y);
+            int z = Mathf.RoundToInt(start.z);
+            int endX = Mathf.RoundToInt(end.x);
+            int endY = Mathf.RoundToInt(end.y);
+            int endZ = Mathf.RoundToInt(end.z);
+            if(!IsStandable(x, y, z)) {
+                return false;
+            }
+
+            float deltaX = end.x - start.x;
+            float deltaZ = end.z - start.z;
+            int stepX = deltaX > 0f ? 1 : -1;
+            int stepZ = deltaZ > 0f ? 1 : -1;
+            float tMaxX = Mathf.Abs(deltaX) > 0.000001f ? (x + 0.5f * stepX - start.x) / deltaX : float.PositiveInfinity;
+            float tMaxZ = Mathf.Abs(deltaZ) > 0.000001f ? (z + 0.5f * stepZ - start.z) / deltaZ : float.PositiveInfinity;
+            float tDeltaX = Mathf.Abs(deltaX) > 0.000001f ? Mathf.Abs(1f / deltaX) : float.PositiveInfinity;
+            float tDeltaZ = Mathf.Abs(deltaZ) > 0.000001f ? Mathf.Abs(1f / deltaZ) : float.PositiveInfinity;
+            int climb = walk.StepCells(pointDistance);
+            int clearance = walk.ClearanceCells(pointDistance);
+            int safety = Mathf.Abs(endX - x) + Mathf.Abs(endZ - z) + 3;
+
+            while(safety-- > 0) {
+                if(x == endX && z == endZ) {
+                    return y == endY;
+                }
+
+                int nextX = x;
+                int nextZ = z;
+                if(Mathf.Abs(tMaxX - tMaxZ) < 0.0001f) {
+                    // Through a corner exactly: a diagonal move, as the search makes it (no squeezing past the corner).
+                    nextX += stepX;
+                    nextZ += stepZ;
+                    tMaxX += tDeltaX;
+                    tMaxZ += tDeltaZ;
+                }
+                else if(tMaxX < tMaxZ) {
+                    nextX += stepX;
+                    tMaxX += tDeltaX;
+                }
+                else {
+                    nextZ += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+
+                // The cell to stand in nearest the current height, within a step either way.
+                int found = int.MinValue;
+                for(int offset = 0; offset <= climb && found == int.MinValue; offset++) {
+                    if(IsStandable(nextX, y + offset, nextZ) && BodyFits(x, y, z, nextX, y + offset, nextZ, clearance)) {
+                        found = y + offset;
+                    }
+                    else if(offset > 0 && IsStandable(nextX, y - offset, nextZ) && BodyFits(x, y, z, nextX, y - offset, nextZ, clearance)) {
+                        found = y - offset;
+                    }
+                }
+
+                if(found == int.MinValue) {
+                    return false;
+                }
+
+                x = nextX;
+                y = found;
+                z = nextZ;
+            }
+
+            return false;
+        }
+
+        /// <summary>Walking: a walker can stand in this cell (free, a blocked cell under it, its body height free above).</summary>
+        public bool IsStandable(int x, int y, int z) {
+            if(grids == null || y < 1 || x < 0 || x >= gridWidth || y >= gridHeight || z < 0 || z >= gridLength) {
+                return false;
+            }
+
+            return grids[x][y - 1][z].invalid && ColumnFree(x, z, y, y + walk.ClearanceCells(pointDistance) - 1);
+        }
+
+        /// <summary>
+        /// Walking: the cell a walker would stand in nearest <paramref name="position"/>, within <paramref name="radius"/>
+        /// cells. Nearness is measured to the floor of each cell, so a point on the ground (a foot, a spot on the floor)
+        /// finds the cell standing on it.
+        /// </summary>
+        public bool TryGetStandable(Vector3 position, int radius, out GridNode node) {
+            node = null;
+            if(invalidGridCollection || grids == null) {
+                return false;
+            }
+
+            GetWorldPositionToGrid(position, out int cx, out int cy, out int cz);
+            float best = float.PositiveInfinity;
+            float floorOffset = pointDistance * 0.5f;
+            for(int x = cx - radius; x <= cx + radius; x++) {
+                for(int y = cy - radius; y <= cy + radius + 1; y++) {
+                    for(int z = cz - radius; z <= cz + radius; z++) {
+                        if(!IsStandable(x, y, z)) {
+                            continue;
+                        }
+
+                        GridNode candidate = grids[x][y][z];
+                        float distance = (candidate.worldPosition - Vector3.up * floorOffset - position).sqrMagnitude;
+                        if(distance < best) {
+                            best = distance;
+                            node = candidate;
+                        }
+                    }
+                }
+            }
+
+            return node != null;
+        }
+
+        private bool ColumnFree(int x, int z, int fromY, int toY) {
+            if(x < 0 || x >= gridWidth || z < 0 || z >= gridLength) {
+                return false;
+            }
+
+            for(int y = Mathf.Max(fromY, 0); y <= toY && y < gridHeight; y++) {
+                if(grids[x][y][z].invalid) {
+                    return false;
+                }
+            }
+
+            return fromY >= 0;
+        }
+
+        /// <summary>The managed twin of <see cref="WalkMoves.BodyFits"/>.</summary>
+        private bool BodyFits(int fromX, int fromY, int fromZ, int toX, int toY, int toZ, int clearance) {
+            int top = Mathf.Max(fromY, toY) + clearance - 1;
+            if(!ColumnFree(fromX, fromZ, fromY, top) || !ColumnFree(toX, toZ, toY, top)) {
+                return false;
+            }
+
+            int dx = toX - fromX;
+            int dz = toZ - fromZ;
+            if(dx != 0 && dz != 0) {
+                int low = Mathf.Min(fromY, toY);
+                return ColumnFree(fromX + dx, fromZ, low, top) && ColumnFree(fromX, fromZ + dz, low, top);
+            }
+
+            return true;
+        }
+
         public bool CheckValidityLocation(Vector3 position) {
             if(invalidGridCollection) {
                 return false;
+            }
+
+            if(IsWalking) {
+                return TryGetStandable(position, 1, out _);
             }
 
             GetWorldPositionToGrid(position, out int x, out int y, out int z);
@@ -334,6 +507,16 @@ namespace Majinfwork.Pathfinding {
                 return;
             }
 
+            if(IsWalking && getClosestValid) {
+                // Walking: valid is a cell a walker stands in.
+                if(!TryGetStandable(position, searchRadius, out result)) {
+                    result = new GridNode();
+                    result.BlockedArea(true);
+                }
+
+                return;
+            }
+
             GetWorldPositionToGrid(position, out int x, out int y, out int z);
             result = grids[x][y][z];
 
@@ -380,9 +563,12 @@ namespace Majinfwork.Pathfinding {
         public bool GetRandomPointInGrid(out Vector3 point, int totalAttempt = 16) {
             if(!invalidGridCollection) {
                 for(int i = 0; i < totalAttempt; i++) {
-                    GridNode randomGrid = grids[Random.Range(2, gridWidth - 2)][Random.Range(2, gridHeight - 2)][Random.Range(2, gridLength - 2)];
+                    int x = Random.Range(2, gridWidth - 2);
+                    int y = Random.Range(2, gridHeight - 2);
+                    int z = Random.Range(2, gridLength - 2);
+                    GridNode randomGrid = grids[x][y][z];
 
-                    if(!randomGrid.invalid) {
+                    if(IsWalking ? IsStandable(x, y, z) : !randomGrid.invalid) {
                         point = randomGrid.worldPosition;
                         return true;
                     }

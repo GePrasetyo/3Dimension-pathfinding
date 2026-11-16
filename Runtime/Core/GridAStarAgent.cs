@@ -78,6 +78,16 @@ namespace Majinfwork.Pathfinding {
             }
         }
 
+        /// <summary>
+        /// Searches <paramref name="grid"/> from now on, instead of looking up the active grid of the agent's type
+        /// (<see cref="AgentState"/>): for a host that manages its own grids, or a test.
+        /// </summary>
+        public void SetGrid(GridCollection grid) {
+            reentryCanceller.Dispose();
+            gridCollection = grid;
+            isOn = grid != null;
+        }
+
         public bool GetPath(Vector3 startLocation, Vector3 targetLocation, ref List<Vector3> pathPoints) {
             GridCollection collection = gridCollection;
 
@@ -88,8 +98,10 @@ namespace Majinfwork.Pathfinding {
                 return false;
             }
 
+            // The search lists the path from the goal back to the start: the walk goes from the cell after the start
+            // (the agent is already in it) to the goal.
             pathPoints.Clear();
-            for(int i = tempPath.Count - 1; i > 0; i--) {
+            for(int i = tempPath.Count - 2; i >= 0; i--) {
                 pathPoints.Add(tempPath[i].worldPosition);
             }
 
@@ -135,7 +147,8 @@ namespace Majinfwork.Pathfinding {
                     return false;
                 }
 
-                for(int i = gridPath.Count - 1; i > 0; i--) {
+                // From the cell after the start to the goal (the search lists them goal first).
+                for(int i = gridPath.Count - 2; i >= 0; i--) {
                     pathPoints.Add(gridPath[i].worldPosition);
                 }
             }
@@ -172,11 +185,18 @@ namespace Majinfwork.Pathfinding {
 
             collection.GetClosestPointWorldSpace(startLocation, out GridNode start);
 
-            if(!collection.CheckValidityLocation(goal)) {
-                return PathfindingStatus.Invalid;
+            GridNode end;
+            if(collection.IsWalking) {
+                // A walker's start and goal are the cells it would stand in there (usually points on the floor).
+                collection.GetClosestPointWorldSpace(goal, out end);
             }
+            else {
+                if(!collection.CheckValidityLocation(goal)) {
+                    return PathfindingStatus.Invalid;
+                }
 
-            collection.GetClosestPointWorldSpace(goal, out GridNode end, getClosestValid: false);
+                collection.GetClosestPointWorldSpace(goal, out end, getClosestValid: false);
+            }
 
             if(start == end || start.invalid || end.invalid) {
                 return PathfindingStatus.Invalid;
@@ -216,7 +236,12 @@ namespace Majinfwork.Pathfinding {
             try {
                 search.Refresh();
                 scratch = search.Rent();
+                float cellSize = collection.pointDistance;
                 var job = new AStarJob {
+                    walking = collection.IsWalking,
+                    clearance = collection.walk.ClearanceCells(cellSize),
+                    stepCells = collection.walk.StepCells(cellSize),
+                    dropCells = collection.walk.DropCells(cellSize),
                     blocked = search.Blocked,
                     width = width,
                     height = height,
@@ -292,7 +317,10 @@ namespace Majinfwork.Pathfinding {
             for(int i = 2; i < pathPoints.Count; i++) {
                 bool segmentTooLong = (pathPoints[i] - pathPoints[anchor]).magnitude > maxPrunedSegmentLength;
 
-                if(segmentTooLong || !collection.HasLineOfSight(pathPoints[anchor], pathPoints[i])) {
+                bool clear = collection.IsWalking
+                    ? collection.HasWalkableLineOfSight(pathPoints[anchor], pathPoints[i])
+                    : collection.HasLineOfSight(pathPoints[anchor], pathPoints[i]);
+                if(segmentTooLong || !clear) {
                     // Keep the corner and its predecessor: the short knot entering the
                     // corner keeps follower smoothing small where clearance is tight.
                     if(!segmentTooLong && i - 2 > anchor) {

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -46,9 +45,7 @@ namespace Majinfwork.Pathfinding.Tests {
 
             agentObject = new GameObject("TestAgent");
             agent = new GridAStarAgent(agentObject.transform, agentType);
-            typeof(GridAStarAgent)
-                .GetField("gridCollection", BindingFlags.NonPublic | BindingFlags.Instance)
-                .SetValue(agent, collection);
+            agent.SetGrid(collection);
         }
 
         [TearDown]
@@ -64,6 +61,15 @@ namespace Majinfwork.Pathfinding.Tests {
 
             Assert.IsTrue(found);
             Assert.Greater(path.Count, 1);
+        }
+
+        [Test]
+        public void PathEndsOnTheGoalNotBackAtTheStart() {
+            List<Vector3> path = new List<Vector3>();
+            Assert.IsTrue(agent.GetPath(Cell(1, 3, 3), Cell(5, 3, 3), ref path));
+
+            Assert.AreEqual(Cell(5, 3, 3), path[path.Count - 1], "the last point is the goal");
+            Assert.AreNotEqual(Cell(1, 3, 3), path[0], "the agent is already in the start cell");
         }
 
         [Test]

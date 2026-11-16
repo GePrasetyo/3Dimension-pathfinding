@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Grid-based 3D A* navigation for flying agents</b><br/>
+  <b>Grid-based 3D A* navigation for flying and walking agents</b><br/>
   Bake a volume, request a path, follow it smoothly - built for VR/mobile budgets.
 </p>
 
@@ -72,7 +72,24 @@ public class Drone : MonoBehaviour {
 }
 ```
 
-### 5. Dynamic obstacles
+### 5. Walking agents
+
+A grid can be walked instead of flown: set the **GridVolume**'s *Movement* to **Walk** and fill its *Walking* settings (body height, step height, drop height, in metres). A walker stands in a free cell with a blocked cell under it and its body height of free cells above, and moves to the 8 columns around it, climbing up to a step and dropping up to a drop, wherever its body fits through (no squeezing past corners). The baked data is the same blocked bits, so a walking volume is baked like any other; pick a cell size that resolves the step height.
+
+Start and goal snap to the cell a walker would stand in there, so points on the floor work. Waypoints are the centers of those cells, just above the floor: steer along them in plan and keep the body on the ground with your own controller.
+
+```csharp
+void Update() {
+    // Steer gives the velocity without moving the body; planar follows the path in plan.
+    if(follower.Steer(transform.position, Time.deltaTime, planar: true, out Vector3 velocity)) {
+        characterController.Move((velocity + Vector3.down * fallSpeed) * Time.deltaTime);
+    }
+}
+```
+
+A drop in the path (the next waypoint below by more than a step) is where the walker steps or jumps off a ledge. Island checks treat drops as two-way, so they never reject a reachable goal; a goal only reachable by climbing what a walker can only drop is found unreachable by the search.
+
+### 6. Dynamic obstacles
 
 Add a **GridObstacle** component to anything that moves - its transform scale defines the blocking box. Ticking is automatic.
 
@@ -83,6 +100,7 @@ Add a **GridObstacle** component to anything that moves - its transform scale de
 | Knob | Where | Effect |
 |------|-------|--------|
 | `pointDistance` | GridVolume | Cell size: resolution vs memory |
+| `movement` / `walking` | GridVolume | Flown or walked; a walker's body height, step and drop |
 | `heuristicWeight` | GridAStarAgent | 1 = optimal paths, higher = faster searches |
 | `maxSpeed` / `acceleration` / `lookaheadDistance` | PathFollower | Cruise speed, turn tightness, corner behavior |
 | `speedFactor` | PathFollower | Runtime multiplier (difficulty, buffs, slows) |
