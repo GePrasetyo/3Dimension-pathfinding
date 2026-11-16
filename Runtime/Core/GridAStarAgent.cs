@@ -98,7 +98,7 @@ namespace Majinfwork.Pathfinding {
                 return false;
             }
 
-            // The search lists the path from the goal back to the start: the walk goes from the cell after the start
+            // The search lists the path from the goal back to the start: the path goes from the cell after the start
             // (the agent is already in it) to the goal.
             pathPoints.Clear();
             for(int i = tempPath.Count - 2; i >= 0; i--) {
@@ -185,18 +185,11 @@ namespace Majinfwork.Pathfinding {
 
             collection.GetClosestPointWorldSpace(startLocation, out GridNode start);
 
-            GridNode end;
-            if(collection.IsWalking) {
-                // A walker's start and goal are the cells it would stand in there (usually points on the floor).
-                collection.GetClosestPointWorldSpace(goal, out end);
+            if(!collection.CheckValidityLocation(goal)) {
+                return PathfindingStatus.Invalid;
             }
-            else {
-                if(!collection.CheckValidityLocation(goal)) {
-                    return PathfindingStatus.Invalid;
-                }
 
-                collection.GetClosestPointWorldSpace(goal, out end, getClosestValid: false);
-            }
+            collection.GetClosestPointWorldSpace(goal, out GridNode end, getClosestValid: false);
 
             if(start == end || start.invalid || end.invalid) {
                 return PathfindingStatus.Invalid;
@@ -236,12 +229,7 @@ namespace Majinfwork.Pathfinding {
             try {
                 search.Refresh();
                 scratch = search.Rent();
-                float cellSize = collection.pointDistance;
                 var job = new AStarJob {
-                    walking = collection.IsWalking,
-                    clearance = collection.walk.ClearanceCells(cellSize),
-                    stepCells = collection.walk.StepCells(cellSize),
-                    dropCells = collection.walk.DropCells(cellSize),
                     blocked = search.Blocked,
                     width = width,
                     height = height,
@@ -317,10 +305,7 @@ namespace Majinfwork.Pathfinding {
             for(int i = 2; i < pathPoints.Count; i++) {
                 bool segmentTooLong = (pathPoints[i] - pathPoints[anchor]).magnitude > maxPrunedSegmentLength;
 
-                bool clear = collection.IsWalking
-                    ? collection.HasWalkableLineOfSight(pathPoints[anchor], pathPoints[i])
-                    : collection.HasLineOfSight(pathPoints[anchor], pathPoints[i]);
-                if(segmentTooLong || !clear) {
+                if(segmentTooLong || !collection.HasLineOfSight(pathPoints[anchor], pathPoints[i])) {
                     // Keep the corner and its predecessor: the short knot entering the
                     // corner keeps follower smoothing small where clearance is tight.
                     if(!segmentTooLong && i - 2 > anchor) {

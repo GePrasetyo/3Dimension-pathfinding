@@ -6,9 +6,8 @@ using Unity.Mathematics;
 namespace Majinfwork.Pathfinding {
     /// <summary>
     /// Weighted A* over a grid's blocked-cell mirror, compiled with Burst and run on a worker thread (or inline for a
-    /// synchronous query): f = g + weight * euclidean, no reopening. Flying moves through all 26 neighbours without
-    /// cutting corners; walking moves between cells a walker stands in, to the 8 columns around, by the
-    /// <see cref="WalkMoves"/> rules. Scratch arrays are reused across searches through stamping, so a search never clears them.
+    /// synchronous query). Same rules as before: 26-connected moves, no corner cutting, f = g + weight * euclidean,
+    /// no reopening. Scratch arrays are reused across searches through stamping, so a search never clears them.
     /// </summary>
     [BurstCompile]
     internal struct AStarJob : IJob {
@@ -28,15 +27,6 @@ namespace Majinfwork.Pathfinding {
         public int goal;
         /// <summary>Upper bound on expanded cells (keeps a worker from being held by a hopeless search).</summary>
         public int maxExpansions;
-
-        /// <summary>Walk instead of fly (the walking fields below apply).</summary>
-        public bool walking;
-        /// <summary>Walking: free cells the walker needs from the floor up.</summary>
-        public int clearance;
-        /// <summary>Walking: cells it climbs in one step.</summary>
-        public int stepCells;
-        /// <summary>Walking: cells it drops in one step.</summary>
-        public int dropCells;
 
         public NativeArray<float> gScore;
         public NativeArray<float> fScore;
@@ -83,11 +73,6 @@ namespace Majinfwork.Pathfinding {
 
                 int3 cell = Cell(current);
                 float currentG = gScore[current];
-                if (walking) {
-                    ExpandWalking(current, cell, currentG, goalCell);
-                    continue;
-                }
-
                 for (int dx = -1; dx <= 1; dx++) {
                     for (int dy = -1; dy <= 1; dy++) {
                         for (int dz = -1; dz <= 1; dz++) {
@@ -105,53 +90,25 @@ namespace Majinfwork.Pathfinding {
                                 continue;
                             }
 
-                            Relax(current, index, next, currentG + pointDistance * math.sqrt(dx * dx + dy * dy + dz * dz), goalCell);
+                            if (stamp[index] != stampId) {
+                                Touch(index);
+                            } else if (heapIndex[index] == Closed) {
+                                continue;
+                            }
+
+                            float tentative = currentG + pointDistance * math.sqrt(dx * dx + dy * dy + dz * dz);
+                            if (tentative < gScore[index]) {
+                                cameFrom[index] = current;
+                                gScore[index] = tentative;
+                                fScore[index] = tentative + heuristicWeight * math.distance(next, goalCell) * pointDistance;
+                                if (heapIndex[index] == NotInOpenSet) {
+                                    Push(index);
+                                } else {
+                                    SiftUp(heapIndex[index]);
+                                }
+                            }
                         }
                     }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Walking: from a cell the walker stands in to every standable cell in the 8 columns around it, from a step up to a
-        /// drop down, where its body fits through the move.
-        /// </summary>
-        private void ExpandWalking(int current, int3 cell, float currentG, int3 goalCell) {
-            int3 size = new int3(width, height, length);
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (dx == 0 && dz == 0) {
-                        continue;
-                    }
-
-                    for (int dy = stepCells; dy >= -dropCells; dy--) {
-                        int3 next = cell + new int3(dx, dy, dz);
-                        if (!WalkMoves.Standable(blocked, size, next, clearance) || !WalkMoves.BodyFits(blocked, size, cell, next, clearance)) {
-                            continue;
-                        }
-
-                        Relax(current, Flatten(next), next, currentG + pointDistance * math.sqrt(dx * dx + dy * dy + dz * dz), goalCell);
-                    }
-                }
-            }
-        }
-
-        /// <summary>Reaches <paramref name="index"/> from <paramref name="current"/> at cost <paramref name="tentative"/>, if that is the cheapest way yet.</summary>
-        private void Relax(int current, int index, int3 next, float tentative, int3 goalCell) {
-            if (stamp[index] != stampId) {
-                Touch(index);
-            } else if (heapIndex[index] == Closed) {
-                return;
-            }
-
-            if (tentative < gScore[index]) {
-                cameFrom[index] = current;
-                gScore[index] = tentative;
-                fScore[index] = tentative + heuristicWeight * math.distance(next, goalCell) * pointDistance;
-                if (heapIndex[index] == NotInOpenSet) {
-                    Push(index);
-                } else {
-                    SiftUp(heapIndex[index]);
                 }
             }
         }

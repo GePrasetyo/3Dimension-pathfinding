@@ -1,14 +1,21 @@
 # Changelog
 
+## [3.0.0]
+
+### Removed
+- Walking agents (2.2.0): `PathMovement`, `WalkSettings`, `GridVolume.movement` and `.walking`, the walking members of `GridCollection` (`Movement`, `Walk`, `IsWalking`, `IsStandable`, `TryGetStandable`, `HasWalkableLineOfSight`), walking searches and island fills, and `PathFollower.Steer`. Walkers on a flyer grid miss whatever is shorter than a cell and climb stairs as cell-high steps; ground agents belong on a NavMesh. The package is for flying agents again.
+
+### Kept from 2.2.0
+- `GridAStarAgent.SetGrid(GridCollection)`: search a given grid instead of the active one of the agent's type. The tests use it instead of reflection.
+- The fix: `GetPath` and `GetPathAsync` returned the start cell first and left the goal cell out. The path runs from the cell after the start to the goal.
+
 ## [2.2.0]
 
 ### Added
-- Walking agents. `GridVolume.movement` (`PathMovement.Fly` or `Walk`) and `GridVolume.walking` (`WalkSettings`: body height, step height, drop height). On a walking grid a walker stands in a free cell with a blocked cell under it and its body height free above, and moves to the 8 columns around it, climbing up to a step and dropping up to a drop where its body fits through. Searches (`AStarJob`), island maps (`IslandFillJob`, drops counted both ways so a reachable goal is never rejected), start/goal snapping (`GridCollection.TryGetStandable`, `IsStandable`) and pruning (`HasWalkableLineOfSight`) all walk. The baked data is unchanged.
-- `PathFollower.Steer(position, deltaTime, planar, out velocity)`: the steering velocity without moving the body, for hosts that move it themselves; `planar` follows the path in plan, for walkers.
-- `GridAStarAgent.SetGrid(GridCollection)`: search a given grid instead of the active one of the agent's type. The tests use it instead of reflection.
+- Walking agents (removed in 3.0.0), `PathFollower.Steer`, and `GridAStarAgent.SetGrid`.
 
 ### Fixed
-- `GetPath` and `GetPathAsync` returned the start cell first and left the goal cell out (the search lists the path goal first, and the copy skipped the wrong end). The path now runs from the cell after the start to the goal: agents no longer turn back to the centre of the cell they start in, and arrive at the goal instead of a cell short of it.
+- `GetPath` and `GetPathAsync` returned the start cell first and left the goal cell out.
 
 ## [2.1.0]
 
