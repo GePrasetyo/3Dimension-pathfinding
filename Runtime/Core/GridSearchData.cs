@@ -73,6 +73,8 @@ namespace Majinfwork.Pathfinding {
 
         private readonly GridCollection collection;
         private readonly List<BodyMask> bodies = new List<BodyMask>();
+        /// <summary>Between the passes that make a body's cells (<see cref="BodyBlocked"/>), one for all bodies.</summary>
+        private NativeArray<byte> bodyScratch;
         private readonly Stack<Scratch> free = new Stack<Scratch>();
         private readonly List<Scratch> all = new List<Scratch>();
         private NativeArray<byte> blocked;
@@ -143,7 +145,7 @@ namespace Majinfwork.Pathfinding {
         /// <summary>
         /// The blocked cells for a body <paramref name="up"/> cells tall above its lowest and <paramref name="ring"/> cells
         /// round (<see cref="PathBody.Cells"/>), as of the mirror's last <see cref="Refresh"/>: the mirror itself for a body
-        /// of one cell; otherwise made again (a Burst job, waiting for searches still reading the old) when the mirror changed.
+        /// of one cell; otherwise made again (Burst jobs, a pass per axis, waiting for searches still reading the old) when the mirror changed.
         /// </summary>
         public NativeArray<byte> BodyBlocked(int up, int ring) {
             if (up <= 0 && ring <= 0) {
@@ -177,17 +179,61 @@ namespace Majinfwork.Pathfinding {
                 mask.blocked = new NativeArray<byte>(blocked.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
 
-            new BodyMaskJob {
-                blocked = blocked,
-                body = mask.blocked,
-                width = collection.gridWidth,
-                height = collection.gridHeight,
-                length = collection.gridLength,
-                up = up,
-                ring = ring
-            }.Schedule(blocked.Length, 4096).Complete();
+            // A body's cells are a box: a pass across x and one across z for its ring, then one up y for its height, each
+            // into the other array, so the last lands in the mask.
+            int width = collection.gridWidth;
+            int height = collection.gridHeight;
+            int length = collection.gridLength;
+            int layer = width * height;
+            int passes = (ring > 0 ? 2 : 0) + (up > 0 ? 1 : 0);
+            if (passes > 1 && (!bodyScratch.IsCreated || bodyScratch.Length != blocked.Length)) {
+                if (bodyScratch.IsCreated) {
+                    bodyScratch.Dispose();
+                }
+
+                bodyScratch = new NativeArray<byte>(blocked.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            }
+
+            NativeArray<byte> source = blocked;
+            JobHandle done = default;
+            if (ring > 0) {
+                // Across x: the rows, one per (y, z).
+                done = Pass(ref source, ref passes, mask, new BodyMaskJob {
+                    count = width, step = 1, inner = height * length, innerStep = width, outerStep = 0,
+                    before = ring, after = ring, edgeBlocked = true
+                }, height * length, done);
+                // Across z: one line per (x, y).
+                done = Pass(ref source, ref passes, mask, new BodyMaskJob {
+                    count = length, step = layer, inner = layer, innerStep = 1, outerStep = 0,
+                    before = ring, after = ring, edgeBlocked = true
+                }, layer, done);
+            }
+
+            if (up > 0) {
+                // Up y: one column per (x, z).
+                done = Pass(ref source, ref passes, mask, new BodyMaskJob {
+                    count = height, step = width, inner = width, innerStep = 1, outerStep = layer,
+                    before = 0, after = up, edgeBlocked = false
+                }, width * length, done);
+            }
+
+            done.Complete();
             mask.version = mirrorVersion;
             return mask.blocked;
+        }
+
+        /// <summary>
+        /// Schedules one pass of a body's cells from <paramref name="source"/> into the mask when it is the last of the
+        /// <paramref name="left"/> passes, into the scratch otherwise (one apart, so the last lands in the mask), and makes
+        /// its target the next pass's source.
+        /// </summary>
+        private JobHandle Pass(ref NativeArray<byte> source, ref int left, BodyMask mask, BodyMaskJob pass, int lines, JobHandle after) {
+            left--;
+            NativeArray<byte> target = left % 2 == 0 ? mask.blocked : bodyScratch;
+            pass.source = source;
+            pass.target = target;
+            source = target;
+            return pass.Schedule(lines, 64, after);
         }
 
         private void DisposeBodies() {
@@ -198,6 +244,9 @@ namespace Majinfwork.Pathfinding {
             }
 
             bodies.Clear();
+            if (bodyScratch.IsCreated) {
+                bodyScratch.Dispose();
+            }
         }
 
         public Scratch Rent() {

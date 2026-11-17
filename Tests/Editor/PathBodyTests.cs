@@ -13,6 +13,8 @@ namespace Majinfwork.Pathfinding.Tests {
         private static readonly Vector3 origin = new Vector3(-size, -size, -size) / 2f * pd;
         /// <summary>A Sentry: 0.6 m across, 1.8 m tall (two cells on this grid: its lowest and the one above).</summary>
         private static readonly PathBody tall = new PathBody(0.6f, 1.8f);
+        /// <summary>A chopper: 2.5 m across, 1.8 m tall (a ring of one cell round its two).</summary>
+        private static readonly PathBody wide = new PathBody(2.5f, 1.8f);
 
         private GridCollection collection;
         private GridNode[][][] grids;
@@ -147,6 +149,60 @@ namespace Majinfwork.Pathfinding.Tests {
                 Assert.IsTrue(collection.HasLineOfSight(from, to), $"{from} -> {to}");
                 Assert.IsTrue(collection.HasLineOfSight(from + Vector3.up * pd, to + Vector3.up * pd), $"{from} -> {to}, a cell up");
                 from = to;
+            }
+        }
+
+        [Test]
+        public void WideBodyNeedsAnOpeningAsWideAndTallAsItIs() {
+            wide.Cells(pd, out int up, out int ring);
+            Assert.AreEqual(1, up);
+            Assert.AreEqual(1, ring);
+            Vector3 lift = wide.Lift(pd);
+            var path = new List<Vector3>();
+            var fits = new List<Vector3Int>();
+            var narrow = new List<Vector3Int>();
+            var low = new List<Vector3Int>();
+            for(int z = 2; z <= 4; z++) {
+                for(int y = 3; y <= 4; y++) {
+                    fits.Add(new Vector3Int(3, y, z));
+                    if(z > 2) {
+                        narrow.Add(new Vector3Int(3, y, z));
+                    }
+                }
+
+                low.Add(new Vector3Int(3, 3, z));
+            }
+
+            Build(fits.ToArray());
+            agent.body = wide;
+            Assert.IsTrue(agent.GetPath(Cell(1, 3, 3) + lift, Cell(5, 3, 3) + lift, ref path), "three cells wide, two tall: it fits");
+            Assert.AreEqual(Cell(5, 3, 3) + lift, path[path.Count - 1]);
+
+            TearDown();
+            Build(narrow.ToArray());
+            agent.body = wide;
+            Assert.IsFalse(agent.GetPath(Cell(1, 3, 3) + lift, Cell(5, 3, 3) + lift, ref path), "two cells wide: it doesn't");
+
+            TearDown();
+            Build(low.ToArray());
+            agent.body = wide;
+            Assert.IsFalse(agent.GetPath(Cell(1, 3, 3) + lift, Cell(5, 3, 3) + lift, ref path), "one cell tall: it doesn't");
+        }
+
+        [Test]
+        public void WideBodyStaysItsRingAwayFromTheGridsSides() {
+            Build(new Vector3Int(3, 3, 3), new Vector3Int(3, 4, 3), new Vector3Int(3, 3, 2), new Vector3Int(3, 4, 2),
+                new Vector3Int(3, 3, 4), new Vector3Int(3, 4, 4));
+            agent.body = wide;
+            Vector3 lift = wide.Lift(pd);
+            var path = new List<Vector3>();
+            // A goal on the side: its ring would stick out, so it goes to the nearest cell it fits in, one cell in.
+            Assert.IsTrue(agent.GetPath(Cell(1, 3, 3) + lift, Cell(5, 3, 0) + lift, ref path));
+            Assert.AreEqual(Cell(5, 3, 1) + lift, path[path.Count - 1]);
+            foreach(Vector3 point in path) {
+                Vector3 cell = (point - lift - origin) / pd;
+                Assert.IsTrue(cell.x >= 1f - 1e-3f && cell.x <= size - 2 + 1e-3f && cell.z >= 1f - 1e-3f && cell.z <= size - 2 + 1e-3f,
+                    $"{point} is less than a ring from a side");
             }
         }
     }

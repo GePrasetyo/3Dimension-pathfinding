@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.1]
+
+### Changed
+- A body's blocked cells are made in three Burst passes, one per axis (across x and z for its ring, up y for its height), each sliding a running count along the grid's lines, instead of one pass reading the whole box round every cell. The cost no longer grows with the body's size: a big flyer (a ring of two or three cells) takes about what a person-sized one does. Same cells as 3.1.0. The passes share one scratch array per grid.
+
 ## [3.1.0]
 
 ### Added
