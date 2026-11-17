@@ -1,6 +1,7 @@
 using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
 using System.Threading;
+using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
 
@@ -22,6 +23,15 @@ namespace Majinfwork.Pathfinding {
         /// spline or follower smoothing stays pinned near obstacles.
         /// </summary>
         public bool prunePathWaypoints = true;
+
+        /// <summary>
+        /// The flyer's size. <see cref="PathBody.Point"/> (the default) fits in one free cell. A bigger body searches only
+        /// where it fits, and every position it gives and gets (where it starts, its goal, the path's points) is its centre.
+        /// </summary>
+        public PathBody body;
+
+        /// <summary>How far (cells each way) a sized body's start and goal may move to the nearest cell it fits in.</summary>
+        private const int bodyFitRadius = 2;
 
         // Cap so follower smoothing stays bounded on long straights.
         private const float maxPrunedSegmentLength = 4f;
@@ -105,8 +115,7 @@ namespace Majinfwork.Pathfinding {
                 pathPoints.Add(tempPath[i].worldPosition);
             }
 
-            PrunePath(pathPoints, collection);
-            SetPathColor(pathPoints);
+            FinishPath(pathPoints, collection);
             return true;
         }
 
@@ -129,10 +138,19 @@ namespace Majinfwork.Pathfinding {
         }
 
         /// <summary>
-        /// Finds a path to <paramref name="targetLocation"/> into the caller's <paramref name="pathPoints"/> (cleared first),
-        /// on a worker thread; nothing is allocated per search.
+        /// Finds a path from the agent's transform to <paramref name="targetLocation"/> into the caller's
+        /// <paramref name="pathPoints"/> (cleared first), on a worker thread; nothing is allocated per search. A sized
+        /// <see cref="body"/> starts from its centre, which its transform may not be: give it with the other overload.
         /// </summary>
-        public async UniTask<bool> GetPathAsync(Vector3 targetLocation, List<Vector3> pathPoints, CancellationToken ct = default) {
+        public UniTask<bool> GetPathAsync(Vector3 targetLocation, List<Vector3> pathPoints, CancellationToken ct = default) {
+            return GetPathAsync(agentTransform.position, targetLocation, pathPoints, ct);
+        }
+
+        /// <summary>
+        /// Finds a path from <paramref name="startLocation"/> to <paramref name="targetLocation"/> into the caller's
+        /// <paramref name="pathPoints"/> (cleared first), on a worker thread; nothing is allocated per search.
+        /// </summary>
+        public async UniTask<bool> GetPathAsync(Vector3 startLocation, Vector3 targetLocation, List<Vector3> pathPoints, CancellationToken ct = default) {
             // Captured before the awaits so pruning runs against the same collection the
             // search used, even if the agent is toggled or rebound mid-search.
             GridCollection collection = gridCollection;
@@ -142,7 +160,7 @@ namespace Majinfwork.Pathfinding {
             bool ownsShared = gridPath == asyncPath;
             asyncPathInUse |= ownsShared;
             try {
-                PathfindingStatus status = await PathfindingCore(agentTransform.position, targetLocation, gridPath, timeSliced: true, ct);
+                PathfindingStatus status = await PathfindingCore(startLocation, targetLocation, gridPath, timeSliced: true, ct);
                 if(status == PathfindingStatus.Invalid) {
                     return false;
                 }
@@ -158,8 +176,7 @@ namespace Majinfwork.Pathfinding {
                 }
             }
 
-            PrunePath(pathPoints, collection);
-            SetPathColor(pathPoints);
+            FinishPath(pathPoints, collection);
             return true;
         }
 
@@ -183,16 +200,33 @@ namespace Majinfwork.Pathfinding {
                 return PathfindingStatus.Invalid;
             }
 
-            collection.GetClosestPointWorldSpace(startLocation, out GridNode start);
-
-            if(!collection.CheckValidityLocation(goal)) {
-                return PathfindingStatus.Invalid;
+            body.Cells(collection.pointDistance, out int bodyUp, out int bodyRing);
+            bool sized = bodyUp > 0 || bodyRing > 0;
+            GridNode start;
+            GridNode end;
+            if(sized) {
+                // A sized body is in the cells from its lowest one up: start and goal go there, then to the nearest cell it fits in.
+                Vector3 lift = Vector3.up * (bodyUp * collection.pointDistance * 0.5f);
+                GridSearchData fitting = collection.SearchData;
+                fitting.Refresh();
+                NativeArray<byte> fits = fitting.BodyBlocked(bodyUp, bodyRing);
+                if(!collection.GetClosestFree(startLocation - lift, fits, bodyFitRadius, out start)
+                    || !collection.GetClosestFree(goal - lift, fits, bodyFitRadius, out end) || start == end) {
+                    return PathfindingStatus.Invalid;
+                }
             }
+            else {
+                collection.GetClosestPointWorldSpace(startLocation, out start);
 
-            collection.GetClosestPointWorldSpace(goal, out GridNode end, getClosestValid: false);
+                if(!collection.CheckValidityLocation(goal)) {
+                    return PathfindingStatus.Invalid;
+                }
 
-            if(start == end || start.invalid || end.invalid) {
-                return PathfindingStatus.Invalid;
+                collection.GetClosestPointWorldSpace(goal, out end, getClosestValid: false);
+
+                if(start == end || start.invalid || end.invalid) {
+                    return PathfindingStatus.Invalid;
+                }
             }
 
             if(!collection.AreConnected(start, end)) {
@@ -230,7 +264,7 @@ namespace Majinfwork.Pathfinding {
                 search.Refresh();
                 scratch = search.Rent();
                 var job = new AStarJob {
-                    blocked = search.Blocked,
+                    blocked = sized ? search.BodyBlocked(bodyUp, bodyRing) : search.Blocked,
                     width = width,
                     height = height,
                     length = length,
@@ -293,7 +327,33 @@ namespace Majinfwork.Pathfinding {
 
         private List<Vector3> pruneCache = new List<Vector3>();
 
-        private void PrunePath(List<Vector3> pathPoints, GridCollection collection) {
+        /// <summary>
+        /// Prunes the path's cells, then, for a sized body, lifts them from its lowest cells to its centre (and draws the
+        /// path when debugging).
+        /// </summary>
+        private void FinishPath(List<Vector3> pathPoints, GridCollection collection) {
+            if(collection != null) {
+                body.Cells(collection.pointDistance, out int up, out int ring);
+                NativeArray<byte> blocked = default;
+                if(up > 0 || ring > 0) {
+                    GridSearchData search = collection.SearchData;
+                    search.Refresh();
+                    blocked = search.BodyBlocked(up, ring);
+                }
+
+                PrunePath(pathPoints, collection, blocked);
+                if(up > 0) {
+                    Vector3 lift = Vector3.up * (up * collection.pointDistance * 0.5f);
+                    for(int i = 0; i < pathPoints.Count; i++) {
+                        pathPoints[i] += lift;
+                    }
+                }
+            }
+
+            SetPathColor(pathPoints);
+        }
+
+        private void PrunePath(List<Vector3> pathPoints, GridCollection collection, NativeArray<byte> blocked) {
             if(!prunePathWaypoints || collection == null || pathPoints.Count < 3) {
                 return;
             }
@@ -305,7 +365,7 @@ namespace Majinfwork.Pathfinding {
             for(int i = 2; i < pathPoints.Count; i++) {
                 bool segmentTooLong = (pathPoints[i] - pathPoints[anchor]).magnitude > maxPrunedSegmentLength;
 
-                if(segmentTooLong || !collection.HasLineOfSight(pathPoints[anchor], pathPoints[i])) {
+                if(segmentTooLong || !collection.HasLineOfSight(pathPoints[anchor], pathPoints[i], blocked)) {
                     // Keep the corner and its predecessor: the short knot entering the
                     // corner keeps follower smoothing small where clearance is tight.
                     if(!segmentTooLong && i - 2 > anchor) {

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Collections;
 using UnityEngine;
 
 namespace Majinfwork.Pathfinding {
@@ -218,6 +219,15 @@ namespace Majinfwork.Pathfinding {
         /// Endpoints are assumed already validated by the caller.
         /// </summary>
         public bool HasLineOfSight(Vector3 from, Vector3 to) {
+            return HasLineOfSight(from, to, default);
+        }
+
+        /// <summary>
+        /// <see cref="HasLineOfSight(Vector3, Vector3)"/> for a body bigger than one cell: the segment runs between its
+        /// lowest cells, and <paramref name="blocked"/> (its blocked cells, from the search data) says which it can't be in.
+        /// Not created: the grid's own blocking.
+        /// </summary>
+        internal bool HasLineOfSight(Vector3 from, Vector3 to, NativeArray<byte> blocked) {
             if(invalidGridCollection) {
                 return false;
             }
@@ -254,7 +264,7 @@ namespace Majinfwork.Pathfinding {
                     return false;
                 }
 
-                if(grids[x][y][z].invalid) {
+                if(blocked.IsCreated ? blocked[x + y * gridWidth + z * gridWidth * gridHeight] != 0 : grids[x][y][z].invalid) {
                     return false;
                 }
 
@@ -361,6 +371,44 @@ namespace Majinfwork.Pathfinding {
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// The cell nearest <paramref name="position"/>, within <paramref name="searchRadius"/> cells each way, that
+        /// <paramref name="blocked"/> (a body's blocked cells, from the search data) leaves free. False: none is.
+        /// </summary>
+        internal bool GetClosestFree(Vector3 position, NativeArray<byte> blocked, int searchRadius, out GridNode result) {
+            result = null;
+            if(invalidGridCollection || !blocked.IsCreated) {
+                return false;
+            }
+
+            GetWorldPositionToGrid(position, out int x, out int y, out int z);
+            float distance = Mathf.Infinity;
+            for(int p = -searchRadius; p <= searchRadius; p++) {
+                for(int q = -searchRadius; q <= searchRadius; q++) {
+                    for(int g = -searchRadius; g <= searchRadius; g++) {
+                        int i = x + p;
+                        int j = y + q;
+                        int k = z + g;
+                        if(i < 0 || i >= gridWidth || j < 0 || j >= gridHeight || k < 0 || k >= gridLength) {
+                            continue;
+                        }
+
+                        if(blocked[i + j * gridWidth + k * gridWidth * gridHeight] != 0) {
+                            continue;
+                        }
+
+                        float dist = (grids[i][j][k].worldPosition - position).sqrMagnitude;
+                        if(dist < distance) {
+                            result = grids[i][j][k];
+                            distance = dist;
+                        }
+                    }
+                }
+            }
+
+            return result != null;
         }
 
         private void GetWorldPositionToGrid(Vector3 position, out int x, out int y, out int z) {

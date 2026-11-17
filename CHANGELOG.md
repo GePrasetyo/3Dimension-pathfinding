@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.1.0]
+
+### Added
+- `PathBody` and `GridAStarAgent.body`: a flyer bigger than one free cell (its width and height in metres) searches only where it fits: the cells above its lowest one for its height, and a ring of cells round them for its width, never out of the grid's sides; the open sky above the grid's top counts as free (a body standing on a roof near the top has its head above it). Its start, goal and path points are its centre. A start or goal it doesn't fit at moves to the nearest cell it fits in (two cells each way at most).
+- The blocked cells for each body size are made from the grid's own in a Burst job (`BodyMaskJob`), again only when the grid's blocking changed; line-of-sight pruning of a sized body's path uses them.
+- `GridAStarAgent.GetPathAsync(start, target, points, ct)`: a search from any point, not only the agent's transform (a sized body's centre, a leg planned from somewhere else).
+- `GridExtension.ProbeMargin`: the bake's margin past half a cell, named (0.1 m, as before).
+
 ## [3.0.0]
 
 ### Removed

@@ -5,8 +5,14 @@ namespace Majinfwork.Pathfinding {
     public static class GridExtension {
         private const float maxFrameTime = 0.01f;
 
+        /// <summary>
+        /// How far (m) past a cell's half size the bake looks for what blocks it: a free cell holds a box this much bigger
+        /// than half a cell each way from its centre.
+        /// </summary>
+        public const float ProbeMargin = 0.1f;
+
         internal static bool ProbeBlocked(GridCollection data, Vector3 position) {
-            return Physics.CheckBox(position, Vector3.one * ((data.pointDistance / 2f) + 0.1f), Quaternion.identity, data.layerMask);
+            return Physics.CheckBox(position, Vector3.one * ((data.pointDistance / 2f) + ProbeMargin), Quaternion.identity, data.layerMask);
         }
 
         /// <summary>

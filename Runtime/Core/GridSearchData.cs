@@ -6,8 +6,9 @@ using Unity.Jobs;
 namespace Majinfwork.Pathfinding {
     /// <summary>
     /// What searches over one grid run on: a native mirror of the grid's blocked cells (refreshed when obstacles
-    /// change, never while a search is reading it) and reusable scratch arrays, one set per search in flight. Native
-    /// memory, so the grid disposes it (<see cref="GridCollection.Dispose"/>).
+    /// change, never while a search is reading it), the blocked cells for each body size searched (<see cref="PathBody"/>,
+    /// made from the mirror when a search asks after it changed) and reusable scratch arrays, one set per search in
+    /// flight. Native memory, so the grid disposes it (<see cref="GridCollection.Dispose"/>).
     /// </summary>
     internal sealed class GridSearchData : IDisposable {
         internal sealed class Scratch : IDisposable {
@@ -57,11 +58,27 @@ namespace Majinfwork.Pathfinding {
             }
         }
 
+        /// <summary>The blocked cells for one body size, as of mirror <see cref="version"/>.</summary>
+        private sealed class BodyMask {
+            public readonly int up;
+            public readonly int ring;
+            public NativeArray<byte> blocked;
+            public int version = -1;
+
+            public BodyMask(int up, int ring) {
+                this.up = up;
+                this.ring = ring;
+            }
+        }
+
         private readonly GridCollection collection;
+        private readonly List<BodyMask> bodies = new List<BodyMask>();
         private readonly Stack<Scratch> free = new Stack<Scratch>();
         private readonly List<Scratch> all = new List<Scratch>();
         private NativeArray<byte> blocked;
         private int version;
+        /// <summary>Counts the mirror's rewrites: a body's cells made before the latest are out of date.</summary>
+        private int mirrorVersion;
         private bool stale = true;
         private JobHandle readers;
         private bool disposed;
@@ -103,6 +120,7 @@ namespace Majinfwork.Pathfinding {
 
                 all.Clear();
                 free.Clear();
+                DisposeBodies();
             }
 
             GridNode[][][] grids = collection.grids;
@@ -118,7 +136,68 @@ namespace Majinfwork.Pathfinding {
             }
 
             version = GridLocator.obstacleVersion;
+            mirrorVersion++;
             stale = false;
+        }
+
+        /// <summary>
+        /// The blocked cells for a body <paramref name="up"/> cells tall above its lowest and <paramref name="ring"/> cells
+        /// round (<see cref="PathBody.Cells"/>), as of the mirror's last <see cref="Refresh"/>: the mirror itself for a body
+        /// of one cell; otherwise made again (a Burst job, waiting for searches still reading the old) when the mirror changed.
+        /// </summary>
+        public NativeArray<byte> BodyBlocked(int up, int ring) {
+            if (up <= 0 && ring <= 0) {
+                return blocked;
+            }
+
+            BodyMask mask = null;
+            foreach (BodyMask candidate in bodies) {
+                if (candidate.up == up && candidate.ring == ring) {
+                    mask = candidate;
+                    break;
+                }
+            }
+
+            if (mask == null) {
+                mask = new BodyMask(up, ring);
+                bodies.Add(mask);
+            }
+
+            if (mask.version == mirrorVersion && mask.blocked.IsCreated && mask.blocked.Length == blocked.Length) {
+                return mask.blocked;
+            }
+
+            readers.Complete();
+            readers = default;
+            if (!mask.blocked.IsCreated || mask.blocked.Length != blocked.Length) {
+                if (mask.blocked.IsCreated) {
+                    mask.blocked.Dispose();
+                }
+
+                mask.blocked = new NativeArray<byte>(blocked.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            }
+
+            new BodyMaskJob {
+                blocked = blocked,
+                body = mask.blocked,
+                width = collection.gridWidth,
+                height = collection.gridHeight,
+                length = collection.gridLength,
+                up = up,
+                ring = ring
+            }.Schedule(blocked.Length, 4096).Complete();
+            mask.version = mirrorVersion;
+            return mask.blocked;
+        }
+
+        private void DisposeBodies() {
+            foreach (BodyMask mask in bodies) {
+                if (mask.blocked.IsCreated) {
+                    mask.blocked.Dispose();
+                }
+            }
+
+            bodies.Clear();
         }
 
         public Scratch Rent() {
@@ -155,6 +234,7 @@ namespace Majinfwork.Pathfinding {
 
             all.Clear();
             free.Clear();
+            DisposeBodies();
             if (blocked.IsCreated) {
                 blocked.Dispose();
             }
